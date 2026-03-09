@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🐰 小兔色彩迷宫</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap');
+
+        body {
+            font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+            background-color: #fdf2f8; /* pink-50 */
+            background-image: radial-gradient(#fbcfe8 2px, transparent 2px);
+            background-size: 30px 30px;
+            touch-action: manipulation;
+        }
+
+        /* 3D 翻转动画 */
+        .cell-inner {
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+        .cell.revealed .cell-inner {
+            transform: rotateY(180deg);
+        }
+        .cell-front, .cell-back {
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+        }
+        .cell-back {
+            transform: rotateY(180deg);
+        }
+
+        /* 角色跳跃动画 */
+        @keyframes bounce-soft {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-10px) scale(1.05); }
+        }
+        .player-anim {
+            animation: bounce-soft 0.5s ease-in-out infinite;
+        }
+
+        /* 错误点击爆炸动画 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px) rotate(-2deg); }
+            40%, 80% { transform: translateX(8px) rotate(2deg); }
+        }
+        .shake-grid {
+            animation: shake 0.4s ease-in-out;
+            border-color: #ef4444 !important; /* Tailwind red-500 */
+        }
+        @keyframes explosion-pop {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.5); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .anim-explode {
+            animation: explosion-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar { width: 0px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center py-6 px-4 text-gray-800">
+
+    <div class="max-w-md w-full bg-white/90 backdrop-blur-sm p-6 rounded-[2rem] shadow-xl border-4 border-pink-200 relative">
+        
+        <!-- 音效开关 -->
+        <button id="sound-toggle" onclick="toggleSound()" class="absolute top-4 right-5 text-2xl hover:scale-110 transition-transform z-10" title="开启/关闭音效">
+            🔊
+        </button>
+
+        <!-- 标题区 -->
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-black text-pink-500 mb-2 drop-shadow-sm">🐰 小兔色彩迷宫</h1>
+            <p class="text-sm text-gray-500 font-bold bg-pink-50 inline-block px-4 py-1 rounded-full border border-pink-100">
+                帮小兔找到右下角的胡萝卜！🥕
+            </p>
+        </div>
+
+        <!-- 游戏规则说明 -->
+        <div class="bg-blue-50 p-4 rounded-2xl mb-6 text-sm text-blue-800 border-2 border-blue-100">
+            <h3 class="font-bold mb-2 flex items-center">📖 移动规则：</h3>
+            <ul class="space-y-1 ml-1">
+                <li class="flex items-center"><span class="w-6 h-6 inline-flex items-center justify-center bg-yellow-300 rounded-md mr-2 shadow-sm border border-yellow-400">🟨</span> <b>黄色</b>：只能向 <b class="text-yellow-600">左上</b> 或 <b class="text-yellow-600">右下</b> 走</li>
+                <li class="flex items-center"><span class="w-6 h-6 inline-flex items-center justify-center bg-blue-300 rounded-md mr-2 shadow-sm border border-blue-400">🟦</span> <b>蓝色</b>：只能向 <b class="text-blue-600">上</b> 或 <b class="text-blue-600">下</b> 走</li>
+                <li class="flex items-center"><span class="w-6 h-6 inline-flex items-center justify-center bg-red-400 rounded-md mr-2 shadow-sm border border-red-500 text-white">🟥</span> <b>红色</b>：只能向 <b class="text-red-600">左</b> 或 <b class="text-red-600">右</b> 走</li>
+            </ul>
+        </div>
+
+        <!-- 游戏状态提示 -->
+        <div id="status-message" class="text-center text-lg font-bold h-8 mb-2 transition-colors duration-300">
+            <!-- 状态信息由JS插入 -->
+        </div>
+
+        <!-- 游戏网格 -->
+        <div id="grid" class="grid grid-cols-4 gap-2 md:gap-3 bg-gray-100 p-3 rounded-3xl border-4 border-gray-200 shadow-inner relative mx-auto w-[280px] h-[280px] md:w-[320px] md:h-[320px]">
+            <!-- 网格由 JS 动态生成 -->
+        </div>
+
+        <!-- 控制按钮 -->
+        <div class="mt-8 flex gap-3 justify-center">
+            <button onclick="playClick(); retryLevel()" class="flex-1 bg-orange-400 hover:bg-orange-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_4px_0_#c2410c] active:shadow-[0_0px_0_#c2410c] active:translate-y-1 transition-all">
+                🔄 重试本局
+            </button>
+            <button onclick="playClick(); startNewGame()" class="flex-1 bg-pink-400 hover:bg-pink-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_4px_0_#be185d] active:shadow-[0_0px_0_#be185d] active:translate-y-1 transition-all">
+                ✨ 新的地图
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- 游戏配置与状态 ---
+        const ROWS = 4;
+        const COLS = 4;
+        const TYPES = ['yellow', 'blue', 'red'];
+        
+        let board = [];
+        let playerPos = 0; // 0 到 15
+        let validNextMoves = [];
+        let gameState = 'playing'; // playing, won, stuck
+
+        const gridEl = document.getElementById('grid');
+        const statusEl = document.getElementById('status-message');
+
+        // --- 音效系统 (Web Audio API) ---
+        let audioCtx;
+        let soundEnabled = true;
+        let bgmTimer = null;
+        let bgmNoteIndex = 0;
+        
+        // 活泼可爱的八音盒风 BGM 旋律
+        const bgmMelody = [
+            392.00, 440.00, 523.25, 659.25, // G4, A4, C5, E5
+            587.33, 0,      523.25, 0,      // D5, 休止, C5, 休止
+            392.00, 440.00, 523.25, 783.99, // G4, A4, C5, G5
+            659.25, 0,      0,      0       // E5, 休止, 休止, 休止
+        ];
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                startBGM(); // 初始化时开启背景音乐循环
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('sound-toggle').innerText = soundEnabled ? '🔊' : '🔇';
+            if (soundEnabled) initAudio();
+        }
+
+        function playSound(freq, type, duration, vol, slideFreq) {
+            if (!soundEnabled || !audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            if (slideFreq) osc.frequency.exponentialRampToValueAtTime(slideFreq, audioCtx.currentTime + duration);
+            
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        // UI 按钮点击音效
+        function playClick() {
+            initAudio();
+            playSound(600, 'sine', 0.1, 0.15, 800);
+        }
+
+        function playHop() { 
+            // 两次快速滑音，产生可爱“啵唧”声
+            playSound(400, 'sine', 0.1, 0.2, 600); 
+            setTimeout(() => playSound(600, 'sine', 0.1, 0.2, 900), 100);
+        }
+        function playExplode() { playSound(150, 'sawtooth', 0.4, 0.5, 40); }
+        function playReset() { playSound(800, 'sine', 0.2, 0.2, 300); }
+        function playWin() {
+            if (!soundEnabled || !audioCtx) return;
+            const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6 (Do Mi Sol Do)
+            notes.forEach((freq, i) => {
+                setTimeout(() => playSound(freq, 'sine', 0.2, 0.3), i * 100);
+            });
+        }
+
+        // BGM 播放逻辑
+        function startBGM() {
+            if (bgmTimer) clearInterval(bgmTimer);
+            bgmNoteIndex = 0;
+            bgmTimer = setInterval(() => {
+                // 只有在游玩状态且未静音时才播放音符
+                if (!soundEnabled || !audioCtx || audioCtx.state !== 'running' || gameState !== 'playing') return;
+                
+                const freq = bgmMelody[bgmNoteIndex % bgmMelody.length];
+                if (freq > 0) {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                    
+                    // 模拟八音盒轻柔短促的包络
+                    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.04, audioCtx.currentTime + 0.03); 
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+                    
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.4);
+                }
+                bgmNoteIndex++;
+            }, 250); // 每秒4个音符
+        }
+
+        // --- 初始化与地图生成 ---
+        function init() {
+            startNewGame();
+        }
+
+        function startNewGame() {
+            if (audioCtx) { initAudio(); playReset(); }
+            
+            let solvable = false;
+            let attempts = 0;
+            
+            // 随机生成直到找到有解的地图 (防止生成死局)
+            while (!solvable && attempts < 1000) {
+                generateRandomBoard();
+                solvable = checkSolvable();
+                attempts++;
+            }
+            
+            // 如果运气极差没找到，给一个兜底的必解地图
+            if (!solvable) {
+                setupHardcodedBoard();
+            }
+
+            resetPlayState();
+        }
+
+        function generateRandomBoard() {
+            board = [];
+            for (let i = 0; i < 16; i++) {
+                if (i === 0) {
+                    board.push({ type: 'yellow', revealed: true }); // 起点必定是黄色
+                } else if (i === 15) {
+                    board.push({ type: 'end', revealed: true }); // 终点
+                } else {
+                    const randomType = TYPES[Math.floor(Math.random() * TYPES.length)];
+                    board.push({ type: randomType, revealed: false });
+                }
+            }
+        }
+
+        // 兜底的必然有解的地图
+        function setupHardcodedBoard() {
+            const layout = ['yellow', 'blue', 'red', 'yellow', 
+                            'blue', 'yellow', 'red', 'blue', 
+                            'red', 'blue', 'yellow', 'red', 
+                            'yellow', 'red', 'blue', 'end'];
+            board = layout.map((type, idx) => ({
+                type: type,
+                revealed: idx === 0 || idx === 15
+            }));
+        }
+
+        // 验证地图是否有解 (BFS)
+        function checkSolvable() {
+            let queue = [0];
+            let visited = new Set([0]);
+            
+            while (queue.length > 0) {
+                let current = queue.shift();
+                if (current === 15) return true; // 到达终点
+                
+                let moves = getMovesForType(current, board[current].type);
+                for (let next of moves) {
+                    if (!visited.has(next)) {
+                        visited.add(next);
+                        queue.push(next);
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 重试本局（保留已揭晓的格子）
+        function retryLevel() {
+            initAudio();
+            playReset();
+            resetPlayState();
+        }
+
+        function resetPlayState() {
+            board.forEach(cell => cell.exploded = false); // 清除爆炸状态
+            playerPos = 0;
+            gameState = 'playing';
+            updateValidMoves();
+            render();
+            updateStatus("👀 观察颜色，寻找出路！", "text-blue-500");
+        }
+
+        // --- 核心逻辑 ---
+
+        // 根据当前位置和颜色，获取合法的下一步索引
+        function getMovesForType(index, type) {
+            let r = Math.floor(index / COLS);
+            let c = index % COLS;
+            let moves = [];
+
+            if (type === 'yellow') {
+                moves = [[r - 1, c - 1], [r + 1, c + 1]]; // 左上，右下
+            } else if (type === 'blue') {
+                moves = [[r - 1, c], [r + 1, c]]; // 上，下
+            } else if (type === 'red') {
+                moves = [[r, c - 1], [r, c + 1]]; // 左，右
+            } else if (type === 'end') {
+                moves = []; // 终点不能再走
+            }
+
+            // 过滤越界的坐标，并转换为 1D 索引
+            return moves
+                .filter(([nr, nc]) => nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS)
+                .map(([nr, nc]) => nr * COLS + nc);
+        }
+
+        function updateValidMoves() {
+            if (gameState !== 'playing') {
+                validNextMoves = [];
+                return;
+            }
+            const currentType = board[playerPos].type;
+            validNextMoves = getMovesForType(playerPos, currentType);
+
+            // 检查是否进入死胡同
+            if (validNextMoves.length === 0 && playerPos !== 15) {
+                gameState = 'stuck';
+                updateStatus("哎呀，走进死胡同啦！点击重试本局 😢", "text-red-500");
+            }
+        }
+
+        function handleCellClick(index) {
+            initAudio();
+            if (gameState !== 'playing') return;
+            if (index === playerPos) return; // 不能点击自己所在的格子
+            
+            // 判断是否是合法的下一步
+            if (validNextMoves.includes(index)) {
+                // 正确：移动并揭晓
+                playerPos = index;
+                board[index].revealed = true;
+                
+                if (index === 15) {
+                    gameState = 'won';
+                    validNextMoves = [];
+                    playWin();
+                    updateStatus("🎉 太棒了！你帮小兔找到了胡萝卜！", "text-green-500");
+                } else {
+                    playHop();
+                    updateValidMoves();
+                }
+                
+                render();
+            } else {
+                // 错误：触发爆炸，本局失败
+                gameState = 'failed';
+                board[index].revealed = true;
+                board[index].exploded = true;
+                
+                playExplode();
+                
+                // 触发网格震动特效
+                gridEl.classList.add('shake-grid');
+                setTimeout(() => {
+                    gridEl.classList.remove('shake-grid');
+                }, 400);
+
+                updateStatus("💥 走错啦！小兔被炸飞了！", "text-red-500");
+                render();
+            }
+        }
+
+        // --- 渲染 UI ---
+
+        function updateStatus(text, colorClass) {
+            statusEl.innerText = text;
+            statusEl.className = `text-center text-lg font-black h-8 mb-2 transition-colors duration-300 ${colorClass}`;
+        }
+
+        function render() {
+            gridEl.innerHTML = '';
+            
+            board.forEach((cell, index) => {
+                const isPlayerHere = (index === playerPos);
+                
+                // 外层包装器：移除高亮提示，统一添加鼠标悬浮效果以迷惑玩家
+                const cellEl = document.createElement('div');
+                cellEl.className = `cell relative w-full h-full ${gameState === 'playing' ? 'cursor-pointer hover:scale-[1.02] transition-transform' : 'cursor-default'} ${cell.revealed ? 'revealed' : ''} rounded-2xl border-4 border-transparent`;
+                
+                if (gameState === 'playing') {
+                    cellEl.onclick = () => handleCellClick(index);
+                }
+
+                // 3D 翻转容器
+                const innerEl = document.createElement('div');
+                innerEl.className = 'cell-inner w-full h-full relative rounded-2xl shadow-sm';
+
+                // --- 正面 (未揭晓，长满草) ---
+                const frontEl = document.createElement('div');
+                frontEl.className = 'cell-front absolute w-full h-full bg-green-200 border-b-4 border-green-300 rounded-2xl flex items-center justify-center text-3xl opacity-80';
+                frontEl.innerHTML = '🌿'; // 隐藏状态图标
+
+                // --- 背面 (已揭晓的颜色或爆炸) ---
+                const backEl = document.createElement('div');
+                let bgColor = '';
+                let content = '';
+                
+                if (cell.exploded) {
+                    bgColor = 'bg-gray-800 border-gray-900 shadow-inner';
+                    content = '<span class="anim-explode text-4xl md:text-5xl">💥</span>';
+                } else if (cell.type === 'yellow') {
+                    bgColor = 'bg-yellow-300 border-yellow-400';
+                    content = '🟨';
+                } else if (cell.type === 'blue') {
+                    bgColor = 'bg-blue-300 border-blue-400';
+                    content = '🟦';
+                } else if (cell.type === 'red') {
+                    bgColor = 'bg-red-400 border-red-500 text-white';
+                    content = '🟥';
+                } else if (cell.type === 'end') {
+                    bgColor = 'bg-orange-100 border-orange-300';
+                    content = '🏠'; // 终点格子图案
+                }
+
+                backEl.className = `cell-back absolute w-full h-full ${bgColor} border-b-4 rounded-2xl flex items-center justify-center text-2xl md:text-3xl shadow-inner`;
+                backEl.innerHTML = content;
+
+                innerEl.appendChild(frontEl);
+                innerEl.appendChild(backEl);
+                cellEl.appendChild(innerEl);
+
+                // --- 玩家标记 (小兔子) ---
+                if (isPlayerHere) {
+                    const playerEl = document.createElement('div');
+                    playerEl.className = 'absolute inset-0 flex items-center justify-center text-4xl md:text-5xl z-20 drop-shadow-md ' + (gameState === 'failed' ? '' : 'player-anim');
+                    
+                    if (gameState === 'won') {
+                        playerEl.innerHTML = '🐰🥕';
+                    } else if (gameState === 'stuck') {
+                        playerEl.innerHTML = '🐰💧';
+                    } else if (gameState === 'failed') {
+                        playerEl.innerHTML = '👻'; // 失败变成幽灵
+                    } else {
+                        playerEl.innerHTML = '🐰';
+                    }
+                    cellEl.appendChild(playerEl);
+                } else if (index === 15 && gameState !== 'won') {
+                    // 终点处的胡萝卜提示
+                    const targetEl = document.createElement('div');
+                    targetEl.className = 'absolute inset-0 flex items-center justify-center text-4xl md:text-5xl z-10 drop-shadow-sm';
+                    targetEl.innerHTML = '🥕';
+                    cellEl.appendChild(targetEl);
+                }
+
+                gridEl.appendChild(cellEl);
+            });
+        }
+
+        // 启动游戏
+        init();
+
+    </script>
+</body>
+</html>
