@@ -254,7 +254,8 @@
             board = [];
             for (let i = 0; i < 16; i++) {
                 if (i === 0) {
-                    board.push({ type: 'yellow', revealed: true }); // 起点必定是黄色
+                    const randomType = TYPES[Math.floor(Math.random() * TYPES.length)];
+                    board.push({ type: randomType, revealed: true }); // 起点随机颜色，保持明牌
                 } else if (i === 15) {
                     board.push({ type: 'end', revealed: true }); // 终点
                 } else {
